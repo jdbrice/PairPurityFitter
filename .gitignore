@@ -1,0 +1,6 @@
+.sconsign.dblite
+*.o
+*.root
+*.pdf
+*.png
+*.app

@@ -1,0 +1,4 @@
+*.log
+*.pdf
+cmds
+runAll.sh
