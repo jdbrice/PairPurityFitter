@@ -5,6 +5,7 @@
 #include "XmlFunction.h"
 #include "XmlHistogram.h"
 #include "CutCollection.h"
+#include "FitConfidence.h"
 
 #include "RooPlotLib.h"
 
@@ -13,9 +14,12 @@
 #include "TRandom3.h"
 #include "TLorentzVector.h"
 #include "TLatex.h"
+#include "TGraphErrors.h"
+#include "TGraphAsymmErrors.h"
 
 #include "vendor/loguru.h"
 
+// globals for fit
 TH1 * hPDFSigSig     = nullptr;
 TH1 * hPDFBgBg       = nullptr;
 TH1 * hPDFBgSig      = nullptr;
@@ -55,8 +59,14 @@ protected:
 	TH2 * nn_pi_pos, *nn_pi_neg;
 
 	map<string, vector<TH1 *>> nn_pt;
+	map<string, vector<TH2 *>> deltas;
 
 	size_t nSamples;
+	bool weight_by_pt  = false;
+	bool weight_by_pid = false;
+
+	string bg_source;
+	string sig_source;
 
 public:
 
@@ -64,34 +74,72 @@ public:
 		HistoAnalyzer::initialize();
 
 		export_img = config.getBool( "can:export", false );
+		weight_by_pt = config.getBool( "weight:pt", false );
+		weight_by_pid = config.getBool( "weight:pid", false );
 		nSamples = config.getInt( "nSamples", 1000 );
 
-		bins["pairPid"].load( config, "bins.pairPid" );
-		bins["mass"].load( config, "bins.mass" );
-		bins["pt"].load( config, "bins.pt" );
-		bins["ptTemplate"].load( config, "bins.ptTemplate" );
-		bins["pid"].load( config, "bins.pid" );
+		vector<string> paths = config.childrenOf( "bins" );
+		for ( auto p : paths ){
+			string tn = config.tagName(p);
+			LOG_F(  INFO, "Loading Bins: %s", tn.c_str() );
+			bins[ tn ].load( config, p );
+			LOG_F( INFO, "%s", bins[tn].toString().c_str() );
+		}
 
 		// build pt projections
 
 		book->cd();
-		build_pt_projections( "sig_pos" );
-		build_pt_projections( "bg_pos" );
+		sig_source = "sig";
+		build_pt_projections( this->sig_source );
+		bg_source = "bg";
+		build_pt_projections( this->bg_source );
 
-
+		if ( weight_by_pt ){
+			build_mass_projections( "uls_delta_pt", "deltaPt", "deltaPt" );
+			build_mass_projections( "ls_delta_pt", "deltaPt", "deltaPt" );
+		}
+		if ( weight_by_pid ){
+			build_mass_projections( "uls_delta_pid", "minpid", "deltaPid" );
+			build_mass_projections( "ls_delta_pid", "minpid", "deltaPid" );
+		}
 	}
 
 	void build_pt_projections( string hname ){
+		LOG_SCOPE_FUNCTION( INFO );
+		TH2 * h2rawpos = get<TH2>( hname + "_pos_mlp", "mc" );
+		TH2 * h2rbpos = HistoBins::rebin2D( hname + "posrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
 
-		TH2 * h2raw = get<TH2>( hname + "_mlp", "mc" );
-		TH2 * h2rb = HistoBins::rebin2D( hname + "rb", h2raw, bins["ptTemplate"], bins["pid"] );
+		TH2 * h2rawneg = get<TH2>( hname + "_neg_mlp", "mc" );
+		TH2 * h2rbneg = HistoBins::rebin2D( hname + "negrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
 
 		vector<TH1 *> projections;
-		for ( size_t i = 0; i <= h2rb->GetXaxis()->GetNbins(); i++ ){
-			TH1 * h = h2rb->ProjectionY( TString::Format( "%s_pt_%lu", hname.c_str(), i ), i, i );
+		LOG_F( 9, "nBins = %d", h2rbpos->GetXaxis()->GetNbins() );
+		for ( size_t i = 0; i <= h2rbpos->GetXaxis()->GetNbins(); i++ ){
+			TH1 * h = h2rbpos->ProjectionY( TString::Format( "%s_pt_%lu", hname.c_str(), i ), i+1, i+1 );
+			TH1 * hn = h2rbneg->ProjectionY( TString::Format( "%s_neg_pt_%lu", hname.c_str(), i ), i+1, i+1 );
+			h->Add( hn );
+
+			LOG_F( 9, "Integral pt[%lu] = %f", i, h->Integral() );
 			projections.push_back( h );
 		}
 		nn_pt[ hname ] = projections;
+	}
+
+	void build_mass_projections( string hname, string binsx, string binsy ){
+		LOG_SCOPE_FUNCTION( INFO );
+		TH3 * h3raw = get<TH3>( hname, "pairPid" );
+		TH3 * h3rb = HistoBins::rebin3D( hname + "rb", h3raw, bins[binsx], bins[binsy], bins["mass"] );
+
+		vector<TH2 *> projections;
+		for ( size_t i = 0; i <= h3rb->GetZaxis()->GetNbins(); i++ ){
+			h3rb->GetZaxis()->SetRange( i, i );
+
+			TH2 * h2 = (TH2*)h3rb->Project3D( "yx" );
+			h2 = (TH2*)h2->Clone( TString::Format( "%s_mass_%lu", hname.c_str(), i ) );
+			projections.push_back( h2 );
+		}
+
+		deltas[ hname ] = projections;
 	}
 
 	virtual void loop_on_mass(TH2 * h2pid, TH2 * h2pt, string prefix){
@@ -128,24 +176,45 @@ public:
 
 			fit_pair_pid( hpid, hpt, prefix, i, m1, m2 );
 
+			// break;
+
 		} //loop on mass bins
 	} // loop_on_mass
 
 
-	// NEED
-	// pt correlation 
-	// pid correlation
-	void generate_templates( TH1 * hpt, TH1 * hbgbg, TH1 * hbgsig, TH1 * hsigsig, TH2 * hdelta ){
+	/* Generates template pairPid shapes from MC
+	 * Samples the input pT distribution and builds a weighted template for the given pair kinematics
+	 *
+	 */
+	void generate_templates( TH1 * hpt, TH1 * hbgbg, TH1 * hbgsig, TH1 * hsigsig, TH2 * hdeltaPid, TH2 * hdeltaPt, TH2 * hDataDeltaPid = nullptr, TH2 * hDataDeltaPt = nullptr, float Ibgbg = 1.0, float Ibgsig = 1.0, float Isigsig = 1.0 ){
+		LOG_SCOPE_FUNCTION( INFO );
 		assert( hpt != nullptr );
+		assert( nullptr != hbgbg );
+		assert( nullptr != hbgsig );
+		assert( nullptr != hsigsig );
+		assert( nullptr != hdeltaPid );
+		assert( nullptr != hdeltaPt );
+
+		if ( Ibgbg   <= 0 ) Ibgbg   = 1.0;
+		if ( Ibgsig  <= 0 ) Ibgsig  = 1.0;
+		if ( Isigsig <= 0 ) Isigsig = 1.0;
+
 		if ( hpt->Integral() <= 0 ) {
 			LOG_F( INFO, "pt is empty" );
 			return;
 		}
-		assert( nn_pt.count( "bg_pos" ) > 0 );
-		assert( nn_pt.count( "sig_pos" ) > 0 );
+		assert( nn_pt.count( this->bg_source ) > 0 );
+		assert( nn_pt.count( this->sig_source ) > 0 );
 
-		vector<TH1 * > bg_pt  = nn_pt["bg_pos"];
-		vector<TH1 * > sig_pt = nn_pt["sig_pos"];
+		bool weightPt  = false;
+		bool weightPid = false;
+		if ( nullptr != hDataDeltaPt )
+			weightPt = true;
+		if ( nullptr != hDataDeltaPid )
+			weightPid = true;
+
+		vector<TH1 * > bg_pt  = nn_pt[ this->bg_source ];
+		vector<TH1 * > sig_pt = nn_pt[ this->sig_source ];
 
 		for ( size_t i = 0; i < nSamples; i++ ){
 
@@ -157,11 +226,13 @@ public:
 			if ( ipt1 < 0 || ipt1 >= sig_pt.size() ) continue;
 			if ( ipt2 < 0 || ipt2 >= sig_pt.size() ) continue;
 
+			if ( false == weightPt )
+				hdeltaPt->Fill( TMath::Min( pt1, pt2 ), fabs( pt1 - pt2 ) );
 
-			float IBg1  = nn_pt[ "bg_pos" ][ipt1]->Integral();
-			float IBg2  = nn_pt[ "bg_pos" ][ipt2]->Integral();
-			float ISig1 = nn_pt[ "sig_pos" ][ipt1]->Integral();
-			float ISig2 = nn_pt[ "sig_pos" ][ipt2]->Integral();
+			float IBg1  = bg_pt[ipt1]->Integral();
+			float IBg2  = bg_pt[ipt2]->Integral();
+			float ISig1 = sig_pt[ipt1]->Integral();
+			float ISig2 = sig_pt[ipt2]->Integral();
 
 			float rBG1  = -999;
 			float rBG2  = -999;
@@ -169,25 +240,85 @@ public:
 			float rSig2 = -999;
 
 			if ( IBg1 > 0 )
-				rBG1  = nn_pt[ "bg_pos" ][ipt1]->GetRandom();
+				rBG1  = bg_pt[ipt1]->GetRandom();
 			if ( IBg2 > 0 )
-				rBG2  = nn_pt[ "bg_pos" ][ipt2]->GetRandom();
+				rBG2  = bg_pt[ipt2]->GetRandom();
 			
 			if ( ISig1 > 0 )
-				rSig1 = nn_pt[ "sig_pos" ][ipt1]->GetRandom();
+				rSig1 = sig_pt[ipt1]->GetRandom();
 			if ( ISig2 > 0 )
-				rSig2 = nn_pt[ "sig_pos" ][ipt2]->GetRandom();
-			
+				rSig2 = sig_pt[ipt2]->GetRandom();
 
 			float pairPid_bgbg   = sqrt( pow( rBG1, 2 ) + pow( rBG2, 2) );
 			float pairPid_bgsig  = sqrt( pow( rBG1, 2 ) + pow( rSig2, 2) );
 			float pairPid_sigbg  = sqrt( pow( rSig1, 2 ) + pow( rBG2, 2) );
 			float pairPid_sigsig = sqrt( pow( rSig1, 2 ) + pow( rSig2, 2) );
 
+
+			if ( false == weightPid ){
+				hdeltaPid->Fill( TMath::Min( rBG1, rBG2 ), fabs( rBG1 - rBG2 ), Ibgbg );
+				hdeltaPid->Fill( TMath::Min( rBG1, rSig2 ), fabs( rBG1 - rSig2 ), 0.5 * Ibgsig );
+				hdeltaPid->Fill( TMath::Min( rSig1, rBG2 ), fabs( rSig1 - rBG2 ), 0.5 * Ibgsig );
+				hdeltaPid->Fill( TMath::Min( rSig1, rSig2 ), fabs( rSig1 - rSig2 ), Isigsig );
+			}
+
+			float wpt = 1.0;
+			if ( weightPt ){
+				float minPt = TMath::Min( pt1, pt2 );
+				float diffPt = fabs( pt1 - pt2 );
+				float mixedW = fweight( hdeltaPt, minPt, diffPt );
+				float sameW = fweight( hDataDeltaPt, minPt, diffPt );
+				if ( mixedW > 0 && sameW > 0){
+					wpt = sameW / mixedW;
+				}
+				
+			}
+			float pairPid_bgbg_wpid = 1.0;
+			float pairPid_bgsig_wpid = 1.0;
+			float pairPid_sigbg_wpid = 1.0;
+			float pairPid_sigsig_wpid = 1.0;
+			if ( weightPid ){
+				// bg bg
+				float minPid = TMath::Min( rBG1, rBG2 );
+				float diffPid = fabs( rBG1 - rBG2 );
+				float mixedW = fweight( hdeltaPid, minPid, diffPid );
+				float sameW = fweight( hDataDeltaPid, minPid, diffPid );
+				if ( mixedW > 0 ){
+					pairPid_bgbg_wpid = sameW / mixedW;
+				}
+
+				// bg sig
+				minPid = TMath::Min( rBG1, rSig2 );
+				diffPid = fabs( rBG1 - rSig2 );
+				mixedW = fweight( hdeltaPid, minPid, diffPid );
+				sameW = fweight( hDataDeltaPid, minPid, diffPid );
+				if ( mixedW > 0 ){
+					pairPid_bgsig_wpid = sameW / mixedW;
+				}
+
+				// sig bg
+				minPid = TMath::Min( rSig1, rBG2 );
+				diffPid = fabs( rSig1 - rBG2 );
+				mixedW = fweight( hdeltaPid, minPid, diffPid );
+				sameW = fweight( hDataDeltaPid, minPid, diffPid );
+				if ( mixedW > 0 ){
+					pairPid_sigbg_wpid = sameW / mixedW;
+				}
+
+				// sig sig
+				minPid = TMath::Min( rSig1, rSig2 );
+				diffPid = fabs( rSig1 - rSig2 );
+				mixedW = fweight( hdeltaPid, minPid, diffPid );
+				sameW = fweight( hDataDeltaPid, minPid, diffPid );
+				if ( mixedW > 0 ){
+					pairPid_sigsig_wpid = sameW / mixedW;
+				}
+			}
+
 			if ( IBg1 > 0 && IBg2 > 0 )
-				hbgbg->Fill( pairPid_bgbg );
+				hbgbg->Fill( pairPid_bgbg, wpt * pairPid_bgbg_wpid * Ibgbg );
 			if ( ISig1 > 0 && ISig2 > 0 )
-				hsigsig->Fill( pairPid_sigsig );
+				hsigsig->Fill( pairPid_sigsig, wpt * pairPid_sigsig_wpid * Isigsig );
 			if ( IBg1 > 0 && ISig2 > 0 )
 				hbgsig->Fill( pairPid_bgsig );
 			if ( IBg2 > 0 && ISig1 > 0 )
@@ -196,26 +327,31 @@ public:
 	} // generate_templates
 
 	void fit_pair_pid( TH1 * hpid, TH1 * hpt, string prefix, size_t im, float m1, float m2 ){
+		LOG_SCOPE_FUNCTION( INFO );
+		LOG_F( INFO, "Fitting %s[%lu], %0.3f < M < %0.3f", prefix.c_str(), im, m1, m2 );
 		assert( hpid != nullptr );
 
 		TH1 * hbgbg = nullptr, *hbgsig = nullptr, *hsigsig = nullptr;
-		hbgbg   = new TH1F( TString::Format( "template_bgbg_m%lu", im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
-		hbgsig  = new TH1F( TString::Format( "template_bgsig_m%lu", im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
-		hsigsig = new TH1F( TString::Format( "template_sigsig_m%lu", im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		TH2 * hdeltaPid = nullptr, *hdeltaPt = nullptr;
+		hbgbg   = new TH1F( TString::Format( "template_%s_bgbg_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		hbgsig  = new TH1F( TString::Format( "template_%s_bgsig_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		hsigsig = new TH1F( TString::Format( "template_%s_sigsig_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		hdeltaPid  = new TH2F( TString::Format( "template_%s_deltaPid_m%lu", prefix.c_str(), im ), "", bins["pid"].nBins(), bins["pid"].getBins().data(), bins["deltaPid"].nBins(), bins["deltaPid"].getBins().data() );
+		hdeltaPt   = new TH2F( TString::Format( "template_%s_deltaPt_m%lu", prefix.c_str(), im ), "", bins["pt"].nBins(), bins["pt"].getBins().data(), bins["deltaPt"].nBins(), bins["deltaPt"].getBins().data() );
 		RooPlotLib rpl;
 		rpl.style( hbgbg ).set( config, "style.bgbg" );
 		rpl.style( hbgsig ).set( config, "style.bgsig" );
 		rpl.style( hsigsig ).set( config, "style.sigsig" );
 
-		generate_templates( hpt, hbgbg, hbgsig, hsigsig );
+		// first pass builds the correlations
+		generate_templates( hpt, hbgbg, hbgsig, hsigsig, hdeltaPid, hdeltaPt );
 
+		/* First Pass Fitting
+		 * use the vanilla mixed templates without any correlation information
+		 */
 		if ( hsigsig->Integral() <= 0 ) return;
 		if ( hbgsig->Integral() <= 0 ) return;
 		if ( hbgbg->Integral() <= 0 ) return;
-
-		rpl.style( hpid ).set( config, "style.data" ).draw();
-		// hpid->Draw( "pe" );
-		gPad->SetLogy(1);
 
 		hsigsig->Scale( 1.0 / hsigsig->Integral() );
 		hbgbg->Scale( 1.0 / hbgbg->Integral() );
@@ -237,9 +373,120 @@ public:
 		ff->SetLineColor(kBlack);
 		ff->SetLineWidth(2);
 
-		string fitOpt = config[ "fit:opt" ];
+		string fitOpt = config[ "fit:opt" ] + "S";
 		LOG_F( INFO, "Fitting (opt=%s) in range (%f, %f)", fitOpt.c_str(), config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
-		hpid->Fit( "ff", fitOpt.c_str(), "", config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
+		TFitResultPtr fitPointer = hpid->Fit( "ff", fitOpt.c_str(), "", config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
+
+		report_fit( hpid, ff, prefix, im, m1, m2 );
+		delete ff;
+
+		// if ( weight_by_pt || weight_by_pid ){
+
+		// 	generate_templates( hpt, hbgbg, hbgsig, hsigsig, hdeltaPid, hdeltaPt, nullptr, nullptr, hbgbg->Integral(), hbgsig->Integral(), hsigsig->Integral() );
+
+		// 	if ( hsigsig->Integral() <= 0 ) return;
+		// 	if ( hbgsig->Integral() <= 0 ) return;
+		// 	if ( hbgbg->Integral() <= 0 ) return;
+
+		// 	hsigsig->Scale( 1.0 / hsigsig->Integral() );
+		// 	hbgbg->Scale( 1.0 / hbgbg->Integral() );
+		// 	hbgsig->Scale( 1.0 / hbgsig->Integral() );
+
+		// 	hPDFSigSig = hsigsig;
+		// 	hPDFBgSig  = hbgsig;
+		// 	hPDFBgBg   = hbgbg;
+
+		// 	TF1 * ff = nullptr;
+		// 	ff = new TF1( "ff", fitfun3, -1, 2, 3 );
+		// 	ff->SetParNames( "sigsig", "bgbg", "bgsig" );
+		// 	ff->SetParLimits( 0, 1e-4, 1 );
+		// 	ff->SetParLimits( 1, 1e-4, 1 );
+		// 	ff->SetParLimits( 2, 1e-4, 1 );
+		// 	ff->SetParameters( 0.1, 0.1, 0.01 );
+
+		// 	ff->SetNpx( 1000 );
+		// 	ff->SetLineColor(kBlack);
+		// 	ff->SetLineWidth(2);
+
+		// 	string fitOpt = config[ "fit:opt" ] + "S";
+		// 	LOG_F( INFO, "Fitting (opt=%s) in range (%f, %f)", fitOpt.c_str(), config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
+		// 	TFitResultPtr fitPointer = hpid->Fit( "ff", fitOpt.c_str(), "", config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
+
+		// 	report_fit( hpid, ff, prefix, im, m1, m2 );
+		// 	delete ff;
+		// }
+
+		// NOTES:
+		// what we should do
+		// instead of filling a single delta, separate by bgbg, bgsig, sigsig
+		// 1. fit to the vanilla mixed templates
+		// 2. use the first pass yields to make a properly weighted delta = Y_bgbg * delta_bgbg + Y_bgsig * delta_bgsig + Y_sigsig * delta_sigsig
+		// 3. generate new templates with weighting
+		// 4. Do final fit
+
+		if ( weight_by_pt || weight_by_pid ){
+			// second pass applies correlation weighting
+
+			TH2 * hdpt = nullptr, *hdpid = nullptr;
+			if ( deltas.count( prefix + "_delta_pt" ) > 0 && im < deltas[ prefix + "_delta_pt" ].size() ){
+				hdpt = deltas[ prefix + "_delta_pt" ][im];
+				hdpt->Scale( 1.0 / hdpt->Integral() );
+			}
+			if ( deltas.count( prefix + "_delta_pid" ) > 0 && im < deltas[ prefix + "_delta_pid" ].size() ){
+				hdpid = deltas[ prefix + "_delta_pid" ][im];
+				hdpid->Scale( 1.0 / hdpid->Integral() );
+			}
+
+			hdeltaPid->Scale(1.0 / hdeltaPid->Integral() );
+			hdeltaPt->Scale(1.0 / hdeltaPt->Integral() );
+
+			hbgbg->Reset();
+			hbgsig->Reset();
+			hsigsig->Reset();
+			generate_templates( hpt, hbgbg, hbgsig, hsigsig, hdeltaPid, hdeltaPt, hdpid, hdpt );
+
+			/* Second Pass Fitting 
+			 * Using the weighted templates
+			 */
+			if ( hsigsig->Integral() <= 0 ) return;
+			if ( hbgsig->Integral() <= 0 ) return;
+			if ( hbgbg->Integral() <= 0 ) return;
+
+			hsigsig->Scale( 1.0 / hsigsig->Integral() );
+			hbgbg->Scale( 1.0 / hbgbg->Integral() );
+			hbgsig->Scale( 1.0 / hbgsig->Integral() );
+
+			hPDFSigSig = hsigsig;
+			hPDFBgSig  = hbgsig;
+			hPDFBgBg   = hbgbg;
+
+			TF1 * ff = nullptr;
+			ff = new TF1( "ff", fitfun3, -1, 2, 3 );
+			ff->SetParNames( "sigsig", "bgbg", "bgsig" );
+			ff->SetParLimits( 0, 1e-4, 1 );
+			ff->SetParLimits( 1, 1e-4, 1 );
+			ff->SetParLimits( 2, 1e-4, 1 );
+			ff->SetParameters( 0.1, 0.1, 0.01 );
+
+			ff->SetNpx( 1000 );
+			ff->SetLineColor(kBlack);
+			ff->SetLineWidth(2);
+
+			LOG_F( INFO, "Fitting 2nd Pass (opt=%s) in range (%f, %f)", fitOpt.c_str(), config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
+			fitPointer = hpid->Fit( "ff", fitOpt.c_str(), "", config.get<float>( "fit:min" ), config.get<float>( "fit:max" ) );
+
+			report_fit( hpid, ff, prefix, im, m1, m2 );
+			delete ff;
+		} // weighted second pass
+	} // fit pair_pid
+
+	void report_fit( TH1 * hpid, TF1 * ff, string prefix, size_t im, float m1, float m2 ) {
+		LOG_SCOPE_FUNCTION( INFO );
+		assert( nullptr != hpid );
+		assert( nullptr != ff );
+		RooPlotLib rpl;
+		rpl.style( hpid ).set( config, "style.data" ).draw();
+		gPad->SetLogy(1);
 
 		hPDFSigSig->Scale( ff->GetParameter( "sigsig" ) );
 		hPDFSigSig->Draw("same");
@@ -265,6 +512,14 @@ public:
 		tl.DrawLatexNDC( 0.20, 0.75, TString::Format("bgbg = %0.4f #pm %0.4f", ff->GetParameter( "bgbg" ), ff->GetParError( ff->GetParNumber( "bgbg" ) )) );
 		tl.DrawLatexNDC( 0.20, 0.70, TString::Format("bgsig = %0.4f #pm %0.4f", ff->GetParameter( "bgsig" ), ff->GetParError( ff->GetParNumber( "bgsig" ) )) );
 
+		tl.SetTextSize( 18.0 / 360.0 );
+		tl.DrawLatexNDC( 0.75, 0.90, TString::Format( "%0.2f < M < %0.2f", m1, m2 ) );
+		if ( "uls" == prefix )
+			tl.DrawLatexNDC( 0.75, 0.86, "unlike-sign" );
+		if ( "ls" == prefix )
+			tl.DrawLatexNDC( 0.75, 0.86, "like-sign" );
+		
+
 		TLegend * leg = new TLegend( 0.2, 0.88, 0.6, 0.95 );
 		leg->SetBorderSize( 0 );
 		leg->SetNColumns( 5 );
@@ -276,11 +531,20 @@ public:
 		leg->Draw();
 
 		can->Print( rpName.c_str() );
+	}
 
+	float fweight( TH1 * h1, float x, float y ){
+		TH2 * hh = dynamic_cast<TH2*>(h1);
+		if ( nullptr == hh )
+			return 0;
 
-
-	} // fit pair_pid
-
+		int iBin1 = hh->GetXaxis()->FindBin( x );
+		int iBin2 = hh->GetYaxis()->FindBin( y );
+		float v = hh->GetBinContent( iBin1, iBin2 );
+		if ( v <= 0 )
+			return 0;
+		return v;
+	}
 
 	virtual void make(){
 		LOG_SCOPE_FUNCTION( INFO );
@@ -330,7 +594,7 @@ public:
 		can->SetRightMargin( 0.01 );
 
 		loop_on_mass( hulsPairPidrb, hulsPtrb, "uls" );
-		loop_on_mass( hlsPairPidrb, hlsPtrb, "ls" );
+		// loop_on_mass( hlsPairPidrb, hlsPtrb, "ls" );
 
 		if ( 0 == config.getInt( "jobIndex" ) || -1 == config.getInt( "jobIndex" ) ){
 			TNamed config_str( "config", config.toXml() );
@@ -338,7 +602,6 @@ public:
 		}
 
 		can->Print( (rpName+"]").c_str()  );
-
 	} // make
 
 };
