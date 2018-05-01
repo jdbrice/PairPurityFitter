@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+	<Task name="RatioMaker" type="RatioMaker" config="" nodePath="RatioMaker"  />
+	<mod></mod>
+
+	<can export="false" w="1900" h="1200" h2="900" />
+
+	<RatioMaker>
+		<input>
+			<TFile url="pair-purity-.root" name="pairPid" />
+		</input>
+
+		<output>
+			<TFile url="pair-ratio-{mod}.root" />
+			<Report url="ratio-{mod}.pdf" />
+		</output>
+
+		<histograms>
+
+		</histograms>
+
+	</RatioMaker>
+
+	<bins>
+		<mass width="0.1" min="0" max="4.0" />
+		<pairPid width="0.01" min="0" max="1.5" />
+		<pt width="0.1" min="0" max="15.0" />
+		<deltaPt width="0.25" min="0" max="10.0" />
+		<ptTemplate width="0.10" min="0" max="15.0" />
+		<pid width="0.01" min="-0.2" max="1.2" />
+		
+		<minpid width="0.01" min="-0.2" max="1.2" />
+		<deltaPid width="0.05" min="-0.2" max="1.2" />
+	</bins>
+
+	<style>
+		<template lc="#F00" lw="3" />
+		<data title="" xtitle="pairPid" ytitle="R( pairPid ) = unlike-sign / like-sign" mc="#000" markerstyle="8" lw="2"/>
+	</style>
+
+</config>

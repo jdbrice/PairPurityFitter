@@ -72,6 +72,11 @@ protected:
 
 	TRandom3 r3;
 	float purityCut = 0.0;
+	
+	float blur_sigma = 0.0;
+	float blur_threshold = 0.0;
+	float blur_pt_min = 0.0;
+
 
 public:
 
@@ -200,6 +205,57 @@ public:
 		} //loop on mass bins
 	} // loop_on_mass
 
+	virtual void loop_on_option(TH2 * h2pid, TH2 * h2pt, string prefix){
+		assert( h2pid != nullptr );
+		assert( h2pt != nullptr );
+
+		vector<int> mass_bins = config.getIntVector( "blur:iMass", 6 );
+		size_t iOpt = 1;
+		for ( int i : mass_bins ) {
+			string projName = prefix + "_pid_mass" + ts( (int) i);
+			string projNamePt = prefix + "_pt_mass" + ts( (int) i);
+			TH1 * hpid = h2pid->ProjectionY( projName.c_str(), i, i );
+			TH1 * hpt  = h2pt->ProjectionY( projNamePt.c_str(), i, i );
+
+			float m1 = h2pid->GetXaxis()->GetBinLowEdge( i );
+			float m2 = h2pid->GetXaxis()->GetBinUpEdge( i );
+
+			hpid->SetTitle( TString::Format( "%0.2f < M < %0.2f", m1, m2 ) );
+
+			if ( hpid->Integral() <= 0 ) continue;
+
+			TH1 * hpidraw = (TH1*)hpid->Clone( TString::Format( "%s_pid_m%lu", prefix.c_str(), i ) );
+
+			hpid->Sumw2();
+			hpid->Scale( 1.0 / hpid->Integral() );
+			hpid->SetMinimum( 5e-4 );
+
+			vector<float> opt_blur_sigma = config.getFloatVector( "blur:sigma" );
+			vector<float> opt_blur_threshold = config.getFloatVector( "blur:threshold" );
+			vector<float> opt_blur_pt_min = config.getFloatVector( "blur:pt_min" );
+
+			for ( auto sigma : opt_blur_sigma ){
+				for (auto thresh : opt_blur_threshold ){
+					for ( auto pt_min : opt_blur_pt_min ){
+
+						blur_sigma = sigma;
+						blur_threshold = thresh;
+						blur_pt_min = pt_min;
+
+						fit_pair_pid( hpid, hpt, prefix, iOpt, m1, m2 );
+
+						LOG_F( INFO, "Blur options: sigma=%f, threshold=%f, min pt=%f", blur_sigma, blur_threshold, blur_pt_min );
+						iOpt ++;
+					} // loop on pt_min
+				} // loop on threshold
+			} // loop on sigma
+		} // loop on mass bin
+
+
+		// break;
+
+	} // loop_on_option
+
 
 	/* Generates template pairPid shapes from MC
 	 * Samples the input pT distribution and builds a weighted template for the given pair kinematics
@@ -272,14 +328,29 @@ public:
 			}
 			
 			if ( ISig1 > 0 )
-				rSig1 = sig_pt[ipt1]->GetRandom() - fabs(r3.Gaus( 0, 0.00 ) );
+				rSig1 = sig_pt[ipt1]->GetRandom();
 			if ( ISig2 > 0 )
-				rSig2 = sig_pt[ipt2]->GetRandom() - fabs(r3.Gaus( 0, 0.00 ) );
+				rSig2 = sig_pt[ipt2]->GetRandom();
+
+			// apply bluring if we are fitting to option
+			if ( pt1 < blur_pt_min && r3.Uniform(1.0) < blur_threshold ){
+				// if ( rBG1 > 0.5 )
+					// rBG1 = rBG1 - fabs(r3.Gaus( 0, blur_sigma ) );
+				if ( rSig1 > 0.5 )
+					rSig1 = rSig1 - fabs(r3.Gaus( 0, blur_sigma ) );
+			}
+			if ( pt2 < blur_pt_min && r3.Uniform(1.0) < blur_threshold ){
+				// if ( rBG2 > 0.5 )
+					// rBG2 = rBG2 - fabs(r3.Gaus( 0, blur_sigma ) );
+				if ( rSig2 > 0.5 )
+					rSig2 = rSig2 - fabs(r3.Gaus( 0, blur_sigma ) );
+			}
 
 			float pairPid_bgbg   = sqrt( pow( rBG1, 2 ) + pow( rBG2, 2) );
 			float pairPid_bgsig  = sqrt( pow( rBG1, 2 ) + pow( rSig2, 2) );
 			float pairPid_sigbg  = sqrt( pow( rSig1, 2 ) + pow( rBG2, 2) );
 			float pairPid_sigsig = sqrt( pow( rSig1, 2 ) + pow( rSig2, 2) );
+
 
 			if ( IBg1 > 0 && IBg2 > 0 )
 				hpipi->Fill( pairPid_bgbg );
@@ -300,7 +371,6 @@ public:
 		TH1 * hpipi = nullptr, *hpimu = nullptr, *hmumu = nullptr;
 		TH2 * hdeltaPid = nullptr, *hdeltaPt = nullptr;
 		hpipi   = new TH1F( TString::Format( "template_%s_pipi_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
-		// hkk   = new TH1F( TString::Format( "template_%s_kk_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
 		hpimu  = new TH1F( TString::Format( "template_%s_pimu_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
 		hmumu = new TH1F( TString::Format( "template_%s_mumu_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
 		hdeltaPid  = new TH2F( TString::Format( "template_%s_deltaPid_m%lu", prefix.c_str(), im ), "", bins["pid"].nBins(), bins["pid"].getBins().data(), bins["deltaPid"].nBins(), bins["deltaPid"].getBins().data() );
@@ -320,9 +390,9 @@ public:
 		if ( hpimu->Integral() <= 0 ) return;
 		if ( hpipi->Integral() <= 0 ) return;
 
-		hmumu->Scale( 1.0 / hmumu->Integral() );
-		hpipi->Scale( 1.0 / hpipi->Integral() );
-		hpimu->Scale( 1.0 / hpimu->Integral() );
+		hmumu->Scale( 10.0 / hmumu->Integral() );
+		hpipi->Scale( 10.0 / hpipi->Integral() );
+		hpimu->Scale( 10.0 / hpimu->Integral() );
 
 		hPDFMuMu = hmumu;
 		hPDFPiMu  = hpimu;
@@ -409,12 +479,18 @@ public:
 		tl.DrawLatexNDC( 0.20, 0.75, TString::Format("bgbg = %0.4f #pm %0.4f", ff->GetParameter( "bgbg" ), ff->GetParError( ff->GetParNumber( "bgbg" ) )) );
 		tl.DrawLatexNDC( 0.20, 0.70, TString::Format("bgsig = %0.4f #pm %0.4f", ff->GetParameter( "bgsig" ), ff->GetParError( ff->GetParNumber( "bgsig" ) )) );
 
+		if ( blur_sigma > 0 && blur_threshold > 0 ){
+			tl.DrawLatexNDC( 0.20, 0.65, TString::Format("#sigma=%0.2f, thresh=%0.2f, pt_min=%0.2f", blur_sigma, blur_threshold, blur_pt_min ) );
+		}
+
 		tl.SetTextSize( 18.0 / 360.0 );
 		tl.DrawLatexNDC( 0.75, 0.90, TString::Format( "%0.2f < M < %0.2f", m1, m2 ) );
 		if ( "uls" == prefix )
 			tl.DrawLatexNDC( 0.75, 0.86, "unlike-sign" );
 		if ( "ls" == prefix )
 			tl.DrawLatexNDC( 0.75, 0.86, "like-sign" );
+
+		
 		
 
 		TLegend * leg = new TLegend( 0.2, 0.88, 0.6, 0.95 );
@@ -490,8 +566,15 @@ public:
 		can->Print( rpName.c_str() );
 		can->SetRightMargin( 0.01 );
 
-		loop_on_mass( hulsPairPidrb, hulsPtrb, "uls" );
-		loop_on_mass( hlsPairPidrb, hlsPtrb, "ls" );
+		string loop_type = config.getString( "fit:loop", "mass");
+		if ( "mass" == loop_type ){
+			// loop_on_mass( hulsPairPidrb, hulsPtrb, "uls" );
+			loop_on_mass( hlsPairPidrb, hlsPtrb, "ls" );
+		} else if ( "blur" == loop_type ){
+			loop_on_option( hulsPairPidrb, hulsPtrb, "uls" );
+		}
+		
+		
 
 		gPad->SetLogy(0);
 		book->get( "uls_chi2ndf" )->Draw(  );
