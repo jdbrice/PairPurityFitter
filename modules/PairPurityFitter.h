@@ -85,11 +85,11 @@ public:
 
 		r3.SetSeed( config.get<int>( "seed", 0 ) );
 
-		export_img = config.getBool( "can:export", false );
-		weight_by_pt = config.getBool( "weight:pt", false );
+		export_img    = config.getBool( "can:export", false );
+		weight_by_pt  = config.getBool( "weight:pt", false );
 		weight_by_pid = config.getBool( "weight:pid", false );
-		use_kaon = config.getBool( "fit:kaon", false );
-		nSamples = config.getInt( "nSamples", 1000 );
+		use_kaon      = config.getBool( "fit:kaon", false );
+		nSamples      = config.getInt( "nSamples", 1000 );
 
 		purityCut = config.get<float>( "purityCut", 1.2 );
 
@@ -114,6 +114,9 @@ public:
 		if ( weight_by_pt ){
 			build_mass_projections( "uls_delta_pt", "deltaPt", "deltaPt" );
 			build_mass_projections( "ls_delta_pt", "deltaPt", "deltaPt" );
+
+			build_mass_projections( "uls_dpt", "pt", "pt" );
+			build_mass_projections( "ls_dpt", "pt", "pt" );
 		}
 		if ( weight_by_pid ){
 			build_mass_projections( "uls_delta_pid", "minpid", "deltaPid" );
@@ -162,9 +165,9 @@ public:
 		deltas[ hname ] = projections;
 	}
 
-	virtual void loop_on_mass(TH2 * h2pid, TH2 * h2pt, string prefix){
+	virtual void loop_on_mass(TH2 * h2pid, TH3 * h3pt, string prefix){
 		assert( h2pid != nullptr );
-		assert( h2pt != nullptr );
+		assert( h3pt != nullptr );
 
 		for ( size_t i = 1; i <= h2pid->GetXaxis()->GetNbins(); i++ ){
 			// if ( i < config.get<int>( "fit:mMin", 1 ) || i > config.getInt( "fit:mMax", 1 ) ) continue;
@@ -172,7 +175,9 @@ public:
 			string projName = prefix + "_pid_mass" + ts( (int) i);
 			string projNamePt = prefix + "_pt_mass" + ts( (int) i);
 			TH1 * hpid = h2pid->ProjectionY( projName.c_str(), i, i );
-			TH1 * hpt  = h2pt->ProjectionY( projNamePt.c_str(), i, i );
+			
+			h3pt->GetZaxis()->SetRange( i, i );
+			TH2 * hpt  = (TH2*)h3pt->Project3D( "yx" )->Clone(projNamePt.c_str());
 
 			float m1 = h2pid->GetXaxis()->GetBinLowEdge( i );
 			float m2 = h2pid->GetXaxis()->GetBinUpEdge( i );
@@ -242,7 +247,7 @@ public:
 						blur_threshold = thresh;
 						blur_pt_min = pt_min;
 
-						fit_pair_pid( hpid, hpt, prefix, iOpt, m1, m2 );
+						// fit_pair_pid( hpid, hpt, prefix, iOpt, m1, m2 );
 
 						LOG_F( INFO, "Blur options: sigma=%f, threshold=%f, min pt=%f", blur_sigma, blur_threshold, blur_pt_min );
 						iOpt ++;
@@ -261,7 +266,7 @@ public:
 	 * Samples the input pT distribution and builds a weighted template for the given pair kinematics
 	 *
 	 */
-	void generate_templates( TH1 * hpt, TH1 * hpipi, TH1 * hpimu, TH1 * hmumu, TH2 * hdeltaPid, TH2 * hdeltaPt ){
+	void generate_templates( TH2 * hpt, TH1 * hpipi, TH1 * hpimu, TH1 * hmumu, TH2 * hdeltaPid, TH2 * hdeltaPt ){
 		LOG_SCOPE_FUNCTION( INFO );
 		assert( hpt != nullptr );
 		assert( nullptr != hpipi );
@@ -290,11 +295,14 @@ public:
 			vector<TH1 *> *bg_pt = &pi_pt;
 
 
-			float pt1 = hpt->GetRandom();
-			float pt2 = hpt->GetRandom();
-
+			double pt1 = -1;
+			double pt2 = -1;
+			
+			hpt->GetRandom2( pt1, pt2 );
+			// LOG_F( INFO, "pt1=%0.3f, pt2=%0.3f", pt1, pt2 );
 			if ( pt1 > 3 ) pt1 = 3;
 			if ( pt2 > 3 ) pt2 = 3;
+			if ( pt1 < 1.0 || pt2 < 1.0 ) continue;
 			
 			int ipt1 = bins[ "ptTemplate" ].findBin( pt1 );
 			int ipt2 = bins[ "ptTemplate" ].findBin( pt2 );
@@ -313,17 +321,17 @@ public:
 
 			if ( IBg1 > 0 ){
 				
-				if ( r3.Uniform( 1.0 ) < 0.1 && k_pt[ipt1]->Integral() > 0 )
-					bg_pt = &k_pt;
-				else 
-					bg_pt = &pi_pt;
+				// if ( r3.Uniform( 1.0 ) < 0.1 && k_pt[ipt1]->Integral() > 0 )
+				// 	bg_pt = &k_pt;
+				// else 
+				// 	bg_pt = &pi_pt;
 				rBG1  = (*bg_pt)[ipt1]->GetRandom();
 			}
 			if ( IBg2 > 0 ){
-				if ( r3.Uniform( 1.0 ) < 0.1 && k_pt[ipt2]->Integral() > 0 )
-					bg_pt = &k_pt;
-				else 
-					bg_pt = &pi_pt;
+				// if ( r3.Uniform( 1.0 ) < 0.1 && k_pt[ipt2]->Integral() > 0 )
+				// 	bg_pt = &k_pt;
+				// else 
+				// 	bg_pt = &pi_pt;
 				rBG2  = (*bg_pt)[ipt2]->GetRandom();
 			}
 			
@@ -363,7 +371,7 @@ public:
 		}
 	} // generate_templates
 
-	void fit_pair_pid( TH1 * hpid, TH1 * hpt, string prefix, size_t im, float m1, float m2 ){
+	void fit_pair_pid( TH1 * hpid, TH2 * hpt, string prefix, size_t im, float m1, float m2 ){
 		LOG_SCOPE_FUNCTION( INFO );
 		LOG_F( INFO, "Fitting %s[%lu], %0.3f < M < %0.3f", prefix.c_str(), im, m1, m2 );
 		assert( hpid != nullptr );
@@ -562,14 +570,21 @@ public:
 		TH2 * hlsPairPidrb = HistoBins::rebin2D( "hlsPairPidrb", hlsPairPid, bins["mass"], bins["pairPid"] );
 		TH2 * hlsPtrb 		= HistoBins::rebin2D( "hlsPtrb", hlsPt, bins["mass"], bins["pt"] );
 
+
+		TH3 * hulsPtPt      = get<TH3>( "uls_dpt", "pairPid" );
+		TH3 * hlsPtPt       = get<TH3>( "ls_dpt", "pairPid" );
+		
+		TH3 * hulsPtPtrb 	= HistoBins::rebin3D( "hulsPtPtrb", hulsPtPt, bins["pt"], bins["pt"], bins["mass"] );
+		TH3 * hlsPtPtrb 	= HistoBins::rebin3D( "hlsPtPtrb", hlsPtPt, bins["pt"], bins["pt"], bins["mass"] );
+
 		hulsPairPidrb->Draw("colz");
 		can->Print( rpName.c_str() );
 		can->SetRightMargin( 0.01 );
 
 		string loop_type = config.getString( "fit:loop", "mass");
 		if ( "mass" == loop_type ){
-			// loop_on_mass( hulsPairPidrb, hulsPtrb, "uls" );
-			loop_on_mass( hlsPairPidrb, hlsPtrb, "ls" );
+			loop_on_mass( hulsPairPidrb, hulsPtPtrb, "uls" );
+			loop_on_mass( hlsPairPidrb, hlsPtPtrb, "ls" );
 		} else if ( "blur" == loop_type ){
 			loop_on_option( hulsPairPidrb, hulsPtrb, "uls" );
 		}
