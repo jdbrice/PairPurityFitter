@@ -7,7 +7,7 @@
 
 	<RatioMaker>
 		<input>
-			<TFile url="pair-purity-.root" name="pairPid" />
+			<TFile url="pair-purity-{mod}.root" name="pairPid" />
 		</input>
 
 		<output>
