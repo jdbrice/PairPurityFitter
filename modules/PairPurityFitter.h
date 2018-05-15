@@ -229,7 +229,7 @@ public:
 
 			if ( hpid->Integral() <= 0 ) continue;
 
-			TH1 * hpidraw = (TH1*)hpid->Clone( TString::Format( "%s_pid_m%lu", prefix.c_str(), i ) );
+			TH1 * hpidraw = (TH1*)hpid->Clone( TString::Format( "%s_pid_m%d", prefix.c_str(), i ) );
 
 			hpid->Sumw2();
 			hpid->Scale( 1.0 / hpid->Integral() );
@@ -378,12 +378,13 @@ public:
 
 		TH1 * hpipi = nullptr, *hpimu = nullptr, *hmumu = nullptr;
 		TH2 * hdeltaPid = nullptr, *hdeltaPt = nullptr;
-		hpipi   = new TH1F( TString::Format( "template_%s_pipi_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
-		hpimu  = new TH1F( TString::Format( "template_%s_pimu_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
-		hmumu = new TH1F( TString::Format( "template_%s_mumu_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
-		hdeltaPid  = new TH2F( TString::Format( "template_%s_deltaPid_m%lu", prefix.c_str(), im ), "", bins["pid"].nBins(), bins["pid"].getBins().data(), bins["deltaPid"].nBins(), bins["deltaPid"].getBins().data() );
-		hdeltaPt   = new TH2F( TString::Format( "template_%s_deltaPt_m%lu", prefix.c_str(), im ), "", bins["pt"].nBins(), bins["pt"].getBins().data(), bins["deltaPt"].nBins(), bins["deltaPt"].getBins().data() );
+		hpipi     = new TH1F( TString::Format( "template_%s_pipi_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		hpimu     = new TH1F( TString::Format( "template_%s_pimu_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		hmumu     = new TH1F( TString::Format( "template_%s_mumu_m%lu", prefix.c_str(), im ), "", bins["pairPid"].nBins(), bins["pairPid"].getBins().data() );
+		hdeltaPid = new TH2F( TString::Format( "template_%s_deltaPid_m%lu", prefix.c_str(), im ), "", bins["pid"].nBins(), bins["pid"].getBins().data(), bins["deltaPid"].nBins(), bins["deltaPid"].getBins().data() );
+		hdeltaPt  = new TH2F( TString::Format( "template_%s_deltaPt_m%lu", prefix.c_str(), im ), "", bins["pt"].nBins(), bins["pt"].getBins().data(), bins["deltaPt"].nBins(), bins["deltaPt"].getBins().data() );
 		RooPlotLib rpl;
+		
 		rpl.style( hpipi ).set( config, "style.bgbg" );
 		rpl.style( hpimu ).set( config, "style.bgsig" );
 		rpl.style( hmumu ).set( config, "style.sigsig" );
@@ -461,13 +462,13 @@ public:
 		gPad->SetLogy(1);
 
 		hPDFMuMu->Scale( ff->GetParameter( "sigsig" ) );
-		hPDFMuMu->Draw("same");
+		hPDFMuMu->Draw("same h");
 
 		hPDFPiMu->Scale( ff->GetParameter( "bgsig" ) );
-		hPDFPiMu->Draw("same");
+		hPDFPiMu->Draw("same h");
 
 		hPDFPiPi->Scale( ff->GetParameter( "bgbg" ) );
-		hPDFPiPi->Draw("same");
+		hPDFPiPi->Draw("same h");
 
 		TH1 * hSum = (TH1*) hPDFPiPi->Clone( TString::Format( "template_%s_sum_m%lu", prefix.c_str(), im ) );
 		hSum->Add( hPDFPiMu );
@@ -478,7 +479,7 @@ public:
 
 		rpl.style( hSum ).set( config, "style.sum" );
 
-		hSum->Draw("same");
+		hSum->Draw("same h");
 
 		TLatex tl;
 		tl.SetTextSize( 12.0 / 360.0 );
