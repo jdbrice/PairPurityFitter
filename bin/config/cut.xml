@@ -5,7 +5,7 @@
 
 	<can export="false" w="1900" h="1200" h2="900" />
 
-	<CutOptimizationMaker>
+	<CutOptimizationMaker cumulative="true" >
 		<input>
 			<TFile url="pair-purity-{mod}.root" name="pairPid" />
 		</input>
@@ -17,6 +17,7 @@
 
 		<histograms>
 			<Histo name="optimal_cut" title=";M_{#mu#mu} (GeV/c^{2});" bins_x="bins.mass" />
+			<Histo name="optimal_SoverB" title=";M_{#mu#mu} (GeV/c^{2});" bins_x="bins.mass" />
 		</histograms>
 
 	</CutOptimizationMaker>
@@ -37,11 +38,12 @@
 		<template lc="#F00" lw="3" />
 		<data title="" xtitle="pairPid" ytitle="R( pairPid ) = unlike-sign / like-sign" mc="#000" markerstyle="8" lw="2"/>
 
-		<sig lc="#F00" xr="0.80, 1.4" yr="0, 1.2" gridy="1" yticks="12, 5, 0, 0"/>
+		<sig lc="#F00" xr="0.8, 1.42" logy="0" yr="0.0, 1.2" gridy="1" yticks="12, 5, 0, 0" x-title="pairPid > x" />
+		<eff lc="#F00" line-style="2" lw="2"/>
 		<bg lc="#00F" />
 		<sigbg lc="#000" />
 		<significance lc="#000" line-style="2" />
-		<maxsignificance c="#F00" marker-style="29" marker-size="5"/>
+		<maxsignificance c="#F00" marker-style="29" marker-size="5" />
 		<optimal_cut lc="#000" marker-style="8" yr="1.0, 1.4"/>
 	</style>
 

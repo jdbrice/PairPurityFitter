@@ -107,9 +107,15 @@ public:
 		sig_source = "sig";
 		build_pt_projections( this->sig_source );
 		bg_source = "bg";
-		build_pt_projections( this->bg_source );
-		if ( use_kaon )
+
+		if ( "pre-computed" == config.getString( nodePath + ":bg-template" ) ){
+			LOG_F( INFO, "Using pre-computed bg template shape" );
+		} else {
+			build_pt_projections( "bg" );
 			build_pt_projections( "kaon" );
+			build_pt_projections( "proton" );
+		}
+		
 
 		if ( weight_by_pt ){
 			build_mass_projections( "uls_delta_pt", "deltaPt", "deltaPt" );
@@ -127,12 +133,12 @@ public:
 		// book->makeAll( config, "" )
 	}
 
-	void build_pt_projections( string hname ){
+	void build_pt_projections( string hname, string fn = "mc" ){
 		LOG_SCOPE_FUNCTION( INFO );
-		TH2 * h2rawpos = get<TH2>( hname + "_pos_mlp", "mc" );
+		TH2 * h2rawpos = get<TH2>( hname + "_pos_mlp", fn );
 		TH2 * h2rbpos = HistoBins::rebin2D( hname + "posrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
 
-		TH2 * h2rawneg = get<TH2>( hname + "_neg_mlp", "mc" );
+		TH2 * h2rawneg = get<TH2>( hname + "_neg_mlp", fn );
 		TH2 * h2rbneg = HistoBins::rebin2D( hname + "negrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
 
 		vector<TH1 *> projections;
@@ -281,18 +287,20 @@ public:
 		}
 		assert( nn_pt.count( "bg" ) > 0 );
 		if ( use_kaon ){
-			assert( nn_pt.count( "kaon" ) > 0 );
+			assert( nn_pt.count( "proton" ) > 0 );
 		}
 		assert( nn_pt.count( this->sig_source ) > 0 );
 
 		vector<TH1 * > pi_pt  = nn_pt[ this->bg_source ];
 		vector<TH1 * > k_pt  = nn_pt[ "kaon" ];
+		vector<TH1 * > p_pt  = nn_pt[ "proton" ];
 		vector<TH1 * > sig_pt = nn_pt[ this->sig_source ];
 
 		for ( size_t i = 0; i < nSamples; i++ ){
 
 			
 			vector<TH1 *> *bg_pt = &pi_pt;
+			// vector<TH1 *> *bg_pt = &k_pt;
 
 
 			double pt1 = -1;
@@ -309,8 +317,7 @@ public:
 			if ( ipt1 < 0 || ipt1 >= sig_pt.size() ) continue;
 			if ( ipt2 < 0 || ipt2 >= sig_pt.size() ) continue;
 
-			float IBg1  = (*bg_pt)[ipt1]->Integral();
-			float IBg2  = (*bg_pt)[ipt2]->Integral();
+			
 			float ISig1 = sig_pt[ipt1]->Integral();
 			float ISig2 = sig_pt[ipt2]->Integral();
 
@@ -319,21 +326,30 @@ public:
 			float rSig1 = -999;
 			float rSig2 = -999;
 
-			if ( IBg1 > 0 ){
-				
-				// if ( r3.Uniform( 1.0 ) < 0.1 && k_pt[ipt1]->Integral() > 0 )
-				// 	bg_pt = &k_pt;
-				// else 
-				// 	bg_pt = &pi_pt;
+			if ( pt1 < 2.0 ){
+				float choice = r3.Uniform( 1.0 );
+				if ( choice > 0.56 && choice < 0.84 )
+					bg_pt = &k_pt;
+				else if ( choice >= 0.84 )
+					bg_pt = &p_pt;
+			}
+
+			float IBg1  = (*bg_pt)[ipt1]->Integral();
+			if ( IBg1 > 0 )
 				rBG1  = (*bg_pt)[ipt1]->GetRandom();
+
+			bg_pt = &pi_pt;
+			if ( pt2 < 2.0 ){
+				float choice = r3.Uniform( 1.0 );
+				if ( choice > 0.56 && choice < 0.84 )
+					bg_pt = &k_pt;
+				else if ( choice >= 0.84 )
+					bg_pt = &p_pt;
 			}
-			if ( IBg2 > 0 ){
-				// if ( r3.Uniform( 1.0 ) < 0.1 && k_pt[ipt2]->Integral() > 0 )
-				// 	bg_pt = &k_pt;
-				// else 
-				// 	bg_pt = &pi_pt;
+
+			float IBg2  = (*bg_pt)[ipt2]->Integral();
+			if ( IBg2 > 0 )
 				rBG2  = (*bg_pt)[ipt2]->GetRandom();
-			}
 			
 			if ( ISig1 > 0 )
 				rSig1 = sig_pt[ipt1]->GetRandom();
@@ -399,9 +415,9 @@ public:
 		if ( hpimu->Integral() <= 0 ) return;
 		if ( hpipi->Integral() <= 0 ) return;
 
-		hmumu->Scale( 10.0 / hmumu->Integral() );
-		hpipi->Scale( 10.0 / hpipi->Integral() );
-		hpimu->Scale( 10.0 / hpimu->Integral() );
+		hmumu->Scale( 1.0 / hmumu->Integral() );
+		hpipi->Scale( 1.0 / hpipi->Integral() );
+		hpimu->Scale( 1.0 / hpimu->Integral() );
 
 		hPDFMuMu = hmumu;
 		hPDFPiMu  = hpimu;
