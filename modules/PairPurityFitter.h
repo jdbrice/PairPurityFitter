@@ -110,6 +110,9 @@ public:
 
 		if ( "pre-computed" == config.getString( nodePath + ":bg-template" ) ){
 			LOG_F( INFO, "Using pre-computed bg template shape" );
+
+			bg_source = "bg_template";
+			build_pt_projections( "bg_template", "precomputed" );
 		} else {
 			build_pt_projections( "bg" );
 			build_pt_projections( "kaon" );
@@ -133,12 +136,12 @@ public:
 		// book->makeAll( config, "" )
 	}
 
-	void build_pt_projections( string hname, string fn = "mc" ){
+	void build_pt_projections( string hname ){
 		LOG_SCOPE_FUNCTION( INFO );
-		TH2 * h2rawpos = get<TH2>( hname + "_pos_mlp", fn );
+		TH2 * h2rawpos = get<TH2>( hname + "_pos_mlp", "mc" );
 		TH2 * h2rbpos = HistoBins::rebin2D( hname + "posrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
 
-		TH2 * h2rawneg = get<TH2>( hname + "_neg_mlp", fn );
+		TH2 * h2rawneg = get<TH2>( hname + "_neg_mlp", "mc" );
 		TH2 * h2rbneg = HistoBins::rebin2D( hname + "negrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
 
 		vector<TH1 *> projections;
@@ -149,6 +152,28 @@ public:
 			h->Add( hn );
 
 			LOG_F( 9, "Integral pt[%lu] = %f", i, h->Integral() );
+			projections.push_back( h );
+		}
+		nn_pt[ hname ] = projections;
+	}
+
+	void build_pt_projections( string hname, string fn ){
+		LOG_SCOPE_FUNCTION( INFO );
+		LOG_F( INFO, "(%s, %s)", hname.c_str(), fn.c_str() );
+		TH2 * h2rawpos = get<TH2>( hname, fn );
+		TH2 * h2rbpos = HistoBins::rebin2D( hname + "posrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
+
+		TH2 * h2rawneg = get<TH2>( hname, fn );
+		TH2 * h2rbneg = HistoBins::rebin2D( hname + "negrb", h2rawpos, bins["ptTemplate"], bins["pid"] );
+
+		vector<TH1 *> projections;
+		LOG_F( INFO, "nBins = %d", h2rbpos->GetXaxis()->GetNbins() );
+		for ( size_t i = 0; i <= h2rbpos->GetXaxis()->GetNbins(); i++ ){
+			TH1 * h = h2rbpos->ProjectionY( TString::Format( "%s_pt_%lu", hname.c_str(), i ), i+1, i+1 );
+			TH1 * hn = h2rbneg->ProjectionY( TString::Format( "%s_neg_pt_%lu", hname.c_str(), i ), i+1, i+1 );
+			h->Add( hn );
+
+			LOG_F( INFO, "Integral pt[%lu] = %f", i, h->Integral() );
 			projections.push_back( h );
 		}
 		nn_pt[ hname ] = projections;
@@ -285,29 +310,18 @@ public:
 			LOG_F( INFO, "pt is empty" );
 			return;
 		}
-		assert( nn_pt.count( "bg" ) > 0 );
-		if ( use_kaon ){
-			assert( nn_pt.count( "proton" ) > 0 );
-		}
+		assert( nn_pt.count( this->bg_source ) > 0 );
 		assert( nn_pt.count( this->sig_source ) > 0 );
 
-		vector<TH1 * > pi_pt  = nn_pt[ this->bg_source ];
-		vector<TH1 * > k_pt  = nn_pt[ "kaon" ];
-		vector<TH1 * > p_pt  = nn_pt[ "proton" ];
+		vector<TH1 * > bg_pt = nn_pt[ this->bg_source ];
 		vector<TH1 * > sig_pt = nn_pt[ this->sig_source ];
 
 		for ( size_t i = 0; i < nSamples; i++ ){
-
-			
-			vector<TH1 *> *bg_pt = &pi_pt;
-			// vector<TH1 *> *bg_pt = &k_pt;
-
-
 			double pt1 = -1;
 			double pt2 = -1;
 			
 			hpt->GetRandom2( pt1, pt2 );
-			// LOG_F( INFO, "pt1=%0.3f, pt2=%0.3f", pt1, pt2 );
+		
 			if ( pt1 > 3 ) pt1 = 3;
 			if ( pt2 > 3 ) pt2 = 3;
 			if ( pt1 < 1.0 || pt2 < 1.0 ) continue;
@@ -326,49 +340,18 @@ public:
 			float rSig1 = -999;
 			float rSig2 = -999;
 
-			if ( pt1 < 2.0 ){
-				float choice = r3.Uniform( 1.0 );
-				if ( choice > 0.56 && choice < 0.84 )
-					bg_pt = &k_pt;
-				else if ( choice >= 0.84 )
-					bg_pt = &p_pt;
-			}
-
-			float IBg1  = (*bg_pt)[ipt1]->Integral();
+			float IBg1  = bg_pt[ipt1]->Integral();
 			if ( IBg1 > 0 )
-				rBG1  = (*bg_pt)[ipt1]->GetRandom();
+				rBG1  = bg_pt[ipt1]->GetRandom();
 
-			bg_pt = &pi_pt;
-			if ( pt2 < 2.0 ){
-				float choice = r3.Uniform( 1.0 );
-				if ( choice > 0.56 && choice < 0.84 )
-					bg_pt = &k_pt;
-				else if ( choice >= 0.84 )
-					bg_pt = &p_pt;
-			}
-
-			float IBg2  = (*bg_pt)[ipt2]->Integral();
+			float IBg2  = bg_pt[ipt2]->Integral();
 			if ( IBg2 > 0 )
-				rBG2  = (*bg_pt)[ipt2]->GetRandom();
+				rBG2  = bg_pt[ipt2]->GetRandom();
 			
 			if ( ISig1 > 0 )
 				rSig1 = sig_pt[ipt1]->GetRandom();
 			if ( ISig2 > 0 )
 				rSig2 = sig_pt[ipt2]->GetRandom();
-
-			// apply bluring if we are fitting to option
-			if ( pt1 < blur_pt_min && r3.Uniform(1.0) < blur_threshold ){
-				// if ( rBG1 > 0.5 )
-					// rBG1 = rBG1 - fabs(r3.Gaus( 0, blur_sigma ) );
-				if ( rSig1 > 0.5 )
-					rSig1 = rSig1 - fabs(r3.Gaus( 0, blur_sigma ) );
-			}
-			if ( pt2 < blur_pt_min && r3.Uniform(1.0) < blur_threshold ){
-				// if ( rBG2 > 0.5 )
-					// rBG2 = rBG2 - fabs(r3.Gaus( 0, blur_sigma ) );
-				if ( rSig2 > 0.5 )
-					rSig2 = rSig2 - fabs(r3.Gaus( 0, blur_sigma ) );
-			}
 
 			float pairPid_bgbg   = sqrt( pow( rBG1, 2 ) + pow( rBG2, 2) );
 			float pairPid_bgsig  = sqrt( pow( rBG1, 2 ) + pow( rSig2, 2) );
