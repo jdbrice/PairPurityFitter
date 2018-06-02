@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <config>
 	<Task name="PairPurityFitter" type="PairPurityFitter" config="" nodePath="PairPurityFitter"  />
-	<mod>nom</mod>
+
+	<!-- Arguments -->
+	<sys>pp</sys>
+	<mod>DNN_N6</mod>
+	<!-- Arguments -->
+
 
 	<weight pt="false" pid="false" />
 	<fit opt="NRE" min="0.1" max="1.5" proton="false" kaon="true" mMin="1" mMax="2" />
@@ -11,18 +16,22 @@
 
 	<nSamples>500000</nSamples>
 
-	<PairPurityFitter  >
+	<PairPurityFitter bg-template="pre-computed" >
 		<input>
 			<!-- <TFile url="data/pair_pid_data.root" name="pairPid" /> -->
-			<TFile url="data/pair_pid_data.root" name="pairPid" />
-			<TFile url="data/data_pdfs_DNN_N6.root" name="data" />
-			<TFile url="data/pdfs.root" name="mc" />
-			<TFile url="data/precomputed.root" name="precomputed" />
+			<!-- <TFile url="data/pair_pid_data.root" name="pairPid" /> -->
+			<!-- <TFile url="data/data_pdfs_DNN_N6.root" name="data" /> -->
+			<!-- <TFile url="data/precomputed.root" name="precomputed" /> -->
+
+			<TFile url="./data/pair_pid_{sys}_data_{mod}.root" name="pairPid" />
+			<TFile url="{DIMUON_ROOT}/data/TrainedModels/pdfs_{mod}.root" name="mc" />
+			<TFile url="{DIMUON_ROOT}/MvaPurityFitter/bin/out-purity-{sys}-{mod}.root" name="precomputed"/>
+			
 		</input>
 
 		<output>
-			<TFile url="pair-purity-{mod}.root" />
-			<Report url="fits-{mod}.pdf" />
+			<TFile url="pair-purity-{sys}-{mod}.root" />
+			<Report url="fits-{sys}-{mod}.pdf" />
 		</output>
 
 		<histograms>
@@ -49,7 +58,7 @@
 	</PairPurityFitter>
 
 	<bins>
-		<mass width="0.01" min="2.9" max="3.3" />
+		<mass width="0.05" min="0.2" max="1.0" />
 		<pairPid width="0.01" min="0" max="1.5" />
 		<pt width="0.1" min="0" max="15.0" />
 		<deltaPt width="0.25" min="0" max="10.0" />

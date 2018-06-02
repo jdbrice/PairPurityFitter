@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <config>
-	<sys>pp</sys>
+	<sys>pAu</sys>
 	<mod>DNN_N6</mod>
-	
+
 	<Data name="d" treeName="PairDst" url="{DIMUON_ROOT}/data/PairDst/pair_dst_{sys}_{mod}.root" />
 	<TFile url="./data/pair_pid_{sys}_data_{mod}.root" />
 
@@ -12,6 +12,7 @@
 	<Transform>
 		<Draw data="d" name="uls_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum==0" bins_x="bins.mass" bins_y="bins.pairPid" />
 		<Draw data="d" name="ls_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum!=0" bins_x="bins.mass" bins_y="bins.pairPid" />
+		
 		<Draw data="d" name="lsp_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum==2" bins_x="bins.mass" bins_y="bins.pairPid" />
 		<Draw data="d" name="lsn_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum==-2" bins_x="bins.mass" bins_y="bins.pairPid" />
 	</Transform>
