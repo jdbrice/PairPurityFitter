@@ -469,6 +469,7 @@ public:
 		hPDFPiPi->Scale( ff->GetParameter( "bgbg" ) );
 		hPDFPiPi->Draw("same h");
 
+		book->cd();
 		TH1 * hSum = (TH1*) hPDFPiPi->Clone( TString::Format( "template_%s_sum_m%lu", prefix.c_str(), im ) );
 		hSum->Add( hPDFPiMu );
 		hSum->Add( hPDFMuMu );

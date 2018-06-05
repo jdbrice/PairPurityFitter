@@ -69,6 +69,8 @@ public:
 			TH1 * hdatanorm = get<TH1>( string(TString::Format( "%s_pid_m%lu", sign.c_str(), i+1 )), "pairPid" );
 			
 
+			LOG_F( INFO, "%p, %p, %p, %p, %p, %p, %p", hpipi, hpimu, hmumu, hsum, hsumbg, hdata, hdatanorm );
+			
 			if ( nullptr == hpipi ) continue;
 			if ( nullptr == hpimu ) continue;
 			if ( nullptr == hmumu ) continue;
