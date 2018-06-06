@@ -15,7 +15,7 @@
 	<purityCut>1.3</purityCut>
 	<can export="false" w="1900" h="1200" h2="900" />
 
-	<nSamples>50000</nSamples>
+	<nSamples>500000</nSamples>
 
 	<PairPurityFitter bg-template="pre-computed" >
 		<input>

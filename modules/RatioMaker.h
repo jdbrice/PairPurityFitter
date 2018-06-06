@@ -37,6 +37,23 @@ public:
 
 	}
 
+	float count_signal( TH1 * huls, TH1 * hls, float cf, float &error ){
+
+		assert( huls && hls );
+
+		TAxis * ax = huls->GetXaxis();
+		int ix1 = ax->FindBin( pidRange.min );
+		int ix2 = ax->FindBin( pidRange.max );
+
+		double eS = 0;
+		double eB = 0;
+		float rS = huls->IntegralAndError( ix1, ix2, eS );
+		float rB = hls->IntegralAndError( ix1, ix2, eB );
+
+		error = eS + eB*cf;
+		float S = rS - ( rB * cf );
+		return S;
+	}
 
 	virtual void make(){
 		LOG_SCOPE_FUNCTION(INFO);
@@ -81,6 +98,9 @@ public:
 			huls->Scale( hdatauls->Integral() );
 			hls->Scale( hdatals->Integral() );
 
+			huls->Sumw2();
+			hls->Sumw2();
+
 			huls = HistoBins::rebin1D( "rb_template_uls_m" + ts(i+1), huls, bins["pairPid"] );
 			hls  = HistoBins::rebin1D( "rb_template_uls_m" + ts(i+1), hls, bins["pairPid"] );
 
@@ -101,7 +121,7 @@ public:
 			// so that the fit is weighted somewhat properly
 
 			for ( size_t j = 1; j < hrdata->GetXaxis()->GetNbins() + 1; j++ ){
-				hrtemp->SetBinError( j, hrdata->GetBinError( j ) );
+				hrtemp->SetBinError( j, hdatauls->GetBinError( j ) );
 				// hrtemp->SetBinError( j, 0.000001 );
 			}
 
@@ -123,10 +143,6 @@ public:
 			leg->AddEntry( hrtemp, "templates" );
 			leg->Draw();
 
-			
-
-			
-
 			TF1 * fpol0 = new TF1( "fpol0", "pol0" );
 			hrtemp->Fit( fpol0, "NRE", "", pidRange.min, pidRange.max );
 			float Rfactor = fpol0->GetParameter(0);
@@ -141,13 +157,24 @@ public:
 			book->get("R_mass")->SetBinContent( i+1, Rfactor );
 			book->get("R_mass")->SetBinError( i+1, 0.001 );
 
-			
+			float error = 0;
+			book->get( "N_mass" )->SetBinContent( i+1, count_signal( hdatauls, hdatals, Rfactor, error ) );
+			book->get( "N_mass" )->SetBinError( i+1, error );
 
 
 		}
 
 
 		rpl.style( "R_mass" ).set( config, "style.R_mass" ).draw();
+		can->Print( rpName.c_str() );
+
+
+		TH1 * h = book->get("N_mass");
+		TH1 * hrb = HistoBins::rebin1D( "N_mass_rb", h, bins["sigmass"] );
+		hrb->Scale( 1.0 * h->GetBinWidth( 3 ), "width" );
+		rpl.style( "N_mass" ).set( config, "style.N_mass" ).draw();
+		rpl.style( hrb ).set( config, "style.N_mass_rb" ).draw("same");
+		gPad->SetLogy(1);
 		can->Print( rpName.c_str() );
 
 		can->Print( (rpName+"]").c_str() );
