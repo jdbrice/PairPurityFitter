@@ -2,11 +2,12 @@
 <config>
 	<sys>pp</sys>
 	<mod>DNN_N6</mod>
+	<id></id>
 	
 	<Data name="d" treeName="PairDst" url="{DIMUON_ROOT}/data/PairDst/pair_dst_{sys}_{mod}.root" />
-	<TFile url="./data/pair_pid_{sys}_data_{mod}.root" />
+	<TFile url="./data/pair_pid_{sys}_data_{mod}{id}.root" />
 
-	<select all="( (d1_mPt > 1.1 && d2_mPt > 1.1) )" />
+	<select all="{select:dapt} && {select:daeta} && {select:pY} && {select:trigger}"  dapt="d1_mPt > 1.1 && d2_mPt > 1.1" daeta="abs(d1_mEta) <= 0.5 && abs(d2_mEta) <= 0.5" pY="abs(mRapidity) <= 0.5" trigger="d1_mTriggerFlag > 0 && d2_mTriggerFlag > 0" />
 
 	<!-- Think about other cuts that may be needed for consistency  -->
 	<Transform>
@@ -14,6 +15,10 @@
 		<Draw data="d" name="ls_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum!=0" bins_x="bins.mass" bins_y="bins.pairPid" />
 		<Draw data="d" name="lsp_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum==2" bins_x="bins.mass" bins_y="bins.pairPid" />
 		<Draw data="d" name="lsn_pair_pid_vs_mass" draw="sqrt( pow( d1_mPid, 2 ) + pow( d2_mPid, 2 ) ) : mMass" select="{select:all} && mChargeSum==-2" bins_x="bins.mass" bins_y="bins.pairPid" />
+
+		<!-- These are used to check for cut parity between this code and the others -->
+		<Draw data="d" name="all_uls" draw="mMass" select="{select:all} && mChargeSum==0" bins_x="bins.mass" />
+		<Draw data="d" name="all_ls" draw="mMass" select="{select:all} && mChargeSum!=0" bins_x="bins.mass" />
 	</Transform>
 
 	<!-- correlations -->
