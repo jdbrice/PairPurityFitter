@@ -81,6 +81,9 @@ public:
 			TH1 * huls = get<TH1>( "template_uls_sumbg_m" + ts( (int) i+1 ), "pairPid" );
 			TH1 * hls = get<TH1>( "template_ls_sumbg_m" + ts( (int) i+1 ), "pairPid" );
 
+			TH1 * hulstot = get<TH1>( "template_uls_sum_m" + ts( (int) i+1 ), "pairPid" );
+			TH1 * hlstot  = get<TH1>( "template_ls_sum_m" + ts( (int) i+1 ), "pairPid" );
+
 			LOG_F( INFO, "huls=%p", huls );
 			LOG_F( INFO, "hls=%p", hls );
 
@@ -98,21 +101,34 @@ public:
 			huls->Scale( hdatauls->Integral() );
 			hls->Scale( hdatals->Integral() );
 
+			hulstot->Scale( hdatauls->Integral() );
+			hlstot->Scale( hdatals->Integral() );
+
 			huls->Sumw2();
 			hls->Sumw2();
 
+			hulstot->Sumw2();
+			hlstot->Sumw2();
+
 			huls = HistoBins::rebin1D( "rb_template_uls_m" + ts(i+1), huls, bins["pairPid"] );
-			hls  = HistoBins::rebin1D( "rb_template_uls_m" + ts(i+1), hls, bins["pairPid"] );
+			hls  = HistoBins::rebin1D( "rb_template_ls_m" + ts(i+1), hls, bins["pairPid"] );
+
+			hulstot = HistoBins::rebin1D( "rb_template_ulstot_m" + ts(i+1), hulstot, bins["pairPid"] );
+			hlstot  = HistoBins::rebin1D( "rb_template_lstot_m" + ts(i+1), hlstot, bins["pairPid"] );
 
 			hdatauls = HistoBins::rebin1D( "rb_data_uls_m" + ts(i+1), hdatauls, bins["pairPid"] );
 			hdatals  = HistoBins::rebin1D( "rb_data_uls_m" + ts(i+1), hdatals, bins["pairPid"] );
 
 			TH1 * hrdata = (TH1*)hdatauls->Clone( TString::Format( "ratio_data_m%lu", i+1 ) );
 			TH1 * hrtemp = (TH1*)huls->Clone( TString::Format( "ratio_template_m%lu", i+1 ) );
+			TH1 * hrtot = (TH1*)hulstot->Clone( TString::Format( "ratio_templatetot_m%lu", i+1 ) );
 
 			
 			hrdata->Divide( hdatals );
 			hrtemp->Divide( hls );
+			hrtot->Divide( hlstot );
+			hrtot->SetLineColor(kBlack);
+
 			hrtemp->SetLineColor(kRed);
 			hrtemp->GetXaxis()->SetRangeUser( 0, 1.42 );
 			hrdata->GetYaxis()->SetRangeUser( 0.0, 5.0 );
@@ -121,16 +137,18 @@ public:
 			// so that the fit is weighted somewhat properly
 
 			for ( size_t j = 1; j < hrdata->GetXaxis()->GetNbins() + 1; j++ ){
-				hrtemp->SetBinError( j, hdatauls->GetBinError( j ) );
-				// hrtemp->SetBinError( j, 0.000001 );
+				// hrtemp->SetBinError( j, hdatauls->GetBinError( j ) );
+				hrtemp->SetBinError( j, 0.000001 );
 			}
 
 			rpl.style( hrdata ).set( config, "style.data" );
 			rpl.style( hrtemp ).set( config, "style.template" );
+			rpl.style( hrtot ).set( config, "style.total" );
 			
 
 			hrdata->Draw("hp");
 			hrtemp->Draw("same hist");
+			hrtot->Draw("same hist");
 
 			TLatex tl;
 			tl.SetTextSize( 16.0 / 360.0 );
@@ -151,16 +169,20 @@ public:
 
 
 			tl.DrawLatexNDC( 0.70, 0.85, TString::Format("R=%f", Rfactor ) );
-			can->Print( rpName.c_str() );
+			
+			
 
 			LOG_F( INFO, "E = %f", fpol0->GetParameter(0) );
 			book->get("R_mass")->SetBinContent( i+1, Rfactor );
 			book->get("R_mass")->SetBinError( i+1, 0.001 );
 
 			float error = 0;
-			book->get( "N_mass" )->SetBinContent( i+1, count_signal( hdatauls, hdatals, Rfactor, error ) );
+			float nsignal = count_signal( hdatauls, hdatals, Rfactor, error );
+			book->get( "N_mass" )->SetBinContent( i+1, nsignal );
 			book->get( "N_mass" )->SetBinError( i+1, error );
 
+			tl.DrawLatexNDC( 0.70, 0.80, TString::Format("nSignal=%f", nsignal ) );
+			can->Print( rpName.c_str() );
 
 		}
 
@@ -170,10 +192,10 @@ public:
 
 
 		TH1 * h = book->get("N_mass");
-		TH1 * hrb = HistoBins::rebin1D( "N_mass_rb", h, bins["sigmass"] );
-		hrb->Scale( 1.0 * h->GetBinWidth( 3 ), "width" );
+		// TH1 * hrb = HistoBins::rebin1D( "N_mass_rb", h, bins["sigmass"] );
+		// hrb->Scale( 1.0 * h->GetBinWidth( 3 ), "width" );
 		rpl.style( "N_mass" ).set( config, "style.N_mass" ).draw();
-		rpl.style( hrb ).set( config, "style.N_mass_rb" ).draw("same");
+		// rpl.style( hrb ).set( config, "style.N_mass_rb" ).draw("same");
 		gPad->SetLogy(1);
 		can->Print( rpName.c_str() );
 

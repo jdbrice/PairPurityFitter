@@ -5,7 +5,7 @@
 	<mod>DNN_N6</mod>
 
 	<can export="false" w="1900" h="1200" h2="900" />
-	<pidRange min="1.3" max="1.5" />
+	<pidRange min="1.35" max="1.5" />
 
 	<RatioMaker>
 		<input>
@@ -19,12 +19,13 @@
 
 		<histograms>
 			<Histo name="R_mass" y-title="R( pairPid ) = unlike-sign / like-sign" x-title="M_{#mu#mu} (GeV/c^{2})" bins_x="bins.mass" />
+			<Histo name="N_mass" y-title="N" x-title="M_{#mu#mu} (GeV/c^{2})" bins_x="bins.mass" />
 		</histograms>
 
 	</RatioMaker>
 
 	<bins>
-		<mass width="0.01" min="0.3" max="0.6" />
+		<mass width="0.2" min="0.2" max="1.2" />
 		<pairPid>
 			0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.31, 1.32, 1.33, 1.34, 1.35, 1.36, 1.37, 1.38, 1.39, 1.4, 1.41, 1.42, 1.43, 1.44, 1.45, 1.46, 1.47, 1.48, 1.49, 1.5
 		</pairPid>
@@ -36,12 +37,15 @@
 		
 		<minpid width="0.01" min="-0.2" max="1.2" />
 		<deltaPid width="0.05" min="-0.2" max="1.2" />
+		<sigmass width="0.2" min="0.2" max="1.2" />
 	</bins>
 
 	<style>
 		<template lc="#F00" lw="3" />
 		<data title="" xtitle="pairPid" ytitle="R( pairPid ) = unlike-sign / like-sign" mc="#000" markerstyle="8" lw="2" />
 		<R_mass grid-y="1" draw="C hpe"/>
+		<N_mass grid-y="0" draw="pe" lc="#F00"/>
+		<N_mass_rb  draw="hpe" lc="#000" />
 		<fit lc="#000" lw="2.0"/>
 	</style>
 
